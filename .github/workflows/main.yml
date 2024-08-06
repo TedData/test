@@ -21,188 +21,28 @@ jobs:
 
     - name: Run PowerBI Performance Script
       run: |
-        $username = "technology.cue@alphacompanies.com.au"
-        $password = "Cut97889"
+        $username = "ServiceAccount@technologycue.com"
+        $password = "ILuvBIT!"
         $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
         $cred = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $username, $securePassword
         Connect-PowerBIServiceAccount -Credential $cred
 
-        $PBI_Dashboards = @()
-        $PBI_DashboardsReports = @()
-        $PBI_Reports = @()
-        $PBI_ErrorLog = @()
-        $PBI_DataSources = @()
-        $PBI_ReportsParameters = @()
-        $Performance = @()
-        $Performance_history = @()
-        $ReportSchedule = @()
-
-        ForEach ($workspace in (Get-PowerBIWorkspace)) {
-          $workspaceId = $workspace.Id
-          foreach ($dashboard in (Get-PowerBIDashboard -WorkspaceId $workspaceId)) {
-            $dashboardInfo = [PSCustomObject]@{
-              "Workspace"     = $workspace.Name
-              "Dashboard"     = $dashboard.Name
-              "WorkspaceId"   = $workspaceId
-              "DashboardId"   = $dashboard.Id
-            }
-            $PBI_Dashboards += $dashboardInfo
-            foreach ($tile in (Get-PowerBITile -DashboardId $dashboard.Id -WorkspaceId $workspaceId)) {
-              if ($tile.ReportId -ne $null) {
-                foreach ($report in (Get-PowerBIReport -ReportId $tile.ReportId -WorkspaceId $workspaceId)) {
-                  $reportInfo = [PSCustomObject]@{
-                    "Workspace"    = $workspace.Name
-                    "Dashboard"    = $dashboard.Name
-                    "Report"       = $report.Name
-                    "WorkspaceId"  = $workspaceId 
-                    "DashboardId"  = $dashboard.Id
-                    "ReportId"     = $report.Id 
-                  }
-                  $PBI_DashboardsReports += $reportInfo
-                }
-              }
-            }
-          }
-          foreach ($report in (Get-PowerBIReport -WorkspaceId $workspaceId)) {
-            $reportInfo = [PSCustomObject]@{
-              "ReportId"     = $report.Id
-              "Report"       = $report.Name
-              "WorkspaceId"  = $workspaceId
-              "Workspace"    = $workspace.Name
-            }
-            $PBI_Reports += $reportInfo
-            if ($report.DatasetId -eq $null) {
-              continue
-            }
-            foreach ($dataset in (Get-PowerBIDataset -Id $report.DatasetId -WorkspaceId $workspaceId)) {
-              Write-Host $dataset.Name
-              $url_dataset_refreshSchedule = "https://api.powerbi.com/v1.0/myorg/datasets/$($dataset.id)/refreshSchedule"
-              $GetDatasetRefreshSchedule = $(Invoke-PowerBIRestMethod -Url $url_dataset_refreshSchedule -Method Get | ConvertFrom-Json).value
-              if($GetDatasetRefreshSchedule.Count -eq 0){
-                $GetDatasetRefreshSchedule = "there_is_no_data"
-              }
-              foreach($refreshSchedule in $GetDatasetRefreshSchedule){
-                $refreshScheduleDays = $refreshSchedule.days
-                $refreshScheduleTimes = $refreshSchedule.times
-                $refreshScheduleEnables = $refreshSchedule.enabled
-                $refreshScheduleLocalTimeZoneId = $refreshSchedule.localTimeZoneId
-                $refreshScheduleNotifyOption = $refreshSchedule.notifyOption
-                $ReportScheduleInfo = [PSCustomObject]@{
-                  "Workspace" = $workspace.Name
-                  "Report" = $report.Name
-                  "Dataset" = $dataset.Name
-                  "Days" = $refreshScheduleDays
-                  "Times" = $refreshScheduleTimes
-                  "enabled" = $refreshScheduleEnables
-                  "localTimeZoneId" = $refreshScheduleLocalTimeZoneId
-                  "notifyOption" = $refreshScheduleNotifyOption
-                }
-                $ReportSchedule+=$ReportScheduleInfo
-              }
-              $refreshUri = 'groups/{0}/datasets/{1}/refreshes' -f $workspaceId, $dataset.Id          
-              $refreshHistory = Invoke-PowerBIRestMethod -Url $refreshUri -Method Get | ConvertFrom-Json
-              if ($refreshHistory.value.Count -ne 0){
-                foreach ($refreshEntry in $refreshHistory.value) {
-                  $errorJson = $refreshEntry.serviceExceptionJson -replace "'", ''
-                  $Status = $refreshEntry.Status
-                  $CreateTime = $refreshHistory.value.startTime | Measure-Object -Minimum | Select-Object -ExpandProperty Minimum
-                  $lastRefreshStartTime = $refreshHistory.value.startTime | Measure-Object -Maximum | Select-Object -ExpandProperty Maximum
-                  $lastRefreshEndTime = $refreshHistory.value.endTime | Measure-Object -Maximum | Select-Object -ExpandProperty Maximum
-                  $startTime = if ($refreshEntry.StartTime.count -eq 0) { "" } else { [DateTime]::Parse($refreshEntry.StartTime) }
-                  $endTime = if ($refreshEntry.EndTime.count -eq 0) { "" } else { [DateTime]::Parse($refreshEntry.EndTime) }
-                  $laststartTime = if ($lastRefreshStartTime.count -eq 0) { "" } else { [DateTime]::Parse($lastRefreshStartTime) }
-                  $lastendTime = if ($lastRefreshEndTime.count -eq 0) { "" } else { [DateTime]::Parse($lastRefreshEndTime) }
-                  $timeDifferenceInMinutes = [math]::Round(($endTime - $startTime).TotalSeconds)
-                  $lasttimeDifferenceInMinutes = [math]::Round(($lastendTime - $laststartTime).TotalSeconds)         
-                  $formattedTimeDifference = "$timeDifferenceInMinutes"
-                  if($refreshEntry.StartTime.Count + $refreshEntry.EndTime.Count -eq 0){
-                    $formattedTimeDifference = ""
-                  }
-                  $lastformattedTimeDifference = "$lasttimeDifferenceInMinutes"
-                  if($lastRefreshStartTime.Count + $lastRefreshEndTime.Count -eq 0){
-                    $lastformattedTimeDifference = ""
-                  }
-                  $PerformanceInfo = [PSCustomObject]@{
-                    "Workspace" = $workspace.Name
-                    "Report" = $report.Name
-                    "Dataset" = $dataset.Name
-                    "Last_Refresh_StartTime"=$lastRefreshStartTime
-                    "Last_Refresh_EndTime"=$lastRefreshEndTime
-                    "Status" = $Status
-                    "WorkspaceId" = $workspaceId
-                    "ReportId" = $report.Id
-                    "DatasetId" = $dataset.Id
-                    "CreationTime" = $CreateTime
-                    "RefreshCostTime" = $lastformattedTimeDifference
-                  }
-                  $Performance += $PerformanceInfo
-                  $Performance_historyInfo = [PSCustomObject]@{
-                    "Workspace" = $workspace.Name
-                    "Report" = $report.Name
-                    "Dataset" = $dataset.Name
-                    "StartTime" = $refreshEntry.StartTime
-                    "EndTime" = $refreshEntry.EndTime
-                    "Status" = $Status
-                    "WorkspaceId" = $workspaceId
-                    "ReportId" = $report.Id
-                    "DatasetId" = $dataset.Id
-                    "RefreshCostTime" = $formattedTimeDifference
-                    "RefreshType"  = $refreshEntry.RefreshType
-                  }
-                  $Performance_history += $Performance_historyInfo
-                  $errorLogInfo = [PSCustomObject]@{
-                    "Workspace"    = $workspace.Name
-                    "Report"       = $report.Name
-                    "Dataset"      = $dataset.Name
-                    "RefreshType"  = $refreshEntry.RefreshType
-                    "Status"       = $refreshEntry.Status
-                    "StartTime"    = $refreshEntry.StartTime
-                    "EndTime"      = $refreshEntry.EndTime
-                    "ServiceExceptionJson" = $refreshEntry.serviceExceptionJson
-                    "StackTrace" = $errorJson
-                  }
-                  if ($Status -eq "Failed"){
-                    $PBI_ErrorLog += $errorLogInfo
-                  }
-                }
-              }
-            }
-            foreach($dataSource in (Get-PowerBIDatasource -DatasetId $report.DatasetId -WorkspaceId $workspaceId)){
-              $dataSourceInfo = [PSCustomObject]@{
-                "Workspace" = $workspace.Name
-                "Report" = $report.Name
-                "Dataset" = $dataset.Name
-                "DatasourceId" = $dataSource.DatasourceId
-                "DatasourceName" = $dataSource.DatasourceName
-                "DatasourceType" = $dataSource.DatasourceType
-              }
-              $PBI_DataSources+=$dataSourceInfo
-            }
-            foreach($parameter in (Get-PowerBIDatasetParameters -WorkspaceId $workspaceId -DatasetId $report.DatasetId)){
-              $parameterInfo = [PSCustomObject]@{
-                "Workspace" = $workspace.Name
-                "Report" = $report.Name
-                "Dataset" = $dataset.Name
-                "Name" = $parameter.Name
-                "Description" = $parameter.Description
-                "Type" = $parameter.Type
-                "IsRequired" = $parameter.IsRequired
-                "IsDynamic" = $parameter.IsDynamic
-                "CurrentValue" = $parameter.CurrentValue
-                "DefaultValue" = $parameter.DefaultValue
-              }
-              $PBI_ReportsParameters += $parameterInfo
-            }
+        $allWorkspaces = Get-PowerBIWorkspace -Scope Organization -ALL
+        
+        $results = foreach ($workspace in $allWorkspaces) {
+          [PSCustomObject]@{
+              "Id"                    = $workspace.Id
+              "Name"                  = $workspace.Name
+              "Type"                  = $workspace.Type
+              "State"                 = $workspace.State
+              "IsReadOnly"            = $workspace.IsReadOnly
+              "IsOrphaned"            = $workspace.IsOrphaned
+              "IsOnDedicatedCapacity" = $workspace.IsOnDedicatedCapacity
+              "CapacityId"            = $workspace.CapacityId
+              "UsersCount"            = ($workspace.Users.Count | Measure-Object -Sum).Sum
+              "UserNames"             = ($workspace.Users.UserPrincipalName -replace '@.*\.com') -join ', '
           }
         }
-        
-        $outputPath = "C:\\Users\\user\\OneDrive - Technology Cue\\TechnologyCueGigs\\Products\\technologucue\\Alpha Companies\\Data"
-        $PBI_Dashboards | Export-Csv -Path "$outputPath\\PBI_Dashboards.csv" -NoTypeInformation
-        $PBI_DashboardsReports | Export-Csv -Path "$outputPath\\PBI_DashboardsReports.csv" -NoTypeInformation
-        $PBI_Reports | Export-Csv -Path "$outputPath\\PBI_Reports.csv" -NoTypeInformation
-        $PBI_ErrorLog | Export-Csv -Path "$outputPath\\PBI_ErrorLog.csv" -NoTypeInformation
-        $PBI_DataSources | Export-Csv -Path "$outputPath\\PBI_DataSources.csv" -NoTypeInformation
-        $PBI_ReportsParameters | Export-Csv -Path "$outputPath\\PBI_ReportsParameters.csv" -NoTypeInformation
-        $Performance | Export-Csv -Path "$outputPath\\Performance.csv" -NoTypeInformation
-        $Performance_history | Export-Csv -Path "$outputPath\\Performance_history.csv" -NoTypeInformation
-        $ReportSchedule | Export-Csv -Path "$outputPath\\ReportSchedule.csv" -NoTypeInformation
+            
+        $outputPath = "C:\\Users\\user\\Desktop\\PowerBI\\Workout"
+        $results | Export-Csv -Path "$outputPath\\workspaceSummary.csv" -NoTypeInformation
