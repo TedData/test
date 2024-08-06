@@ -1,0 +1,194 @@
+PowerBIScript:
+  Synopsis: "This PowerShell script retrieves performance data for Power BI datasets and exports it to a CSV file."
+  Description: >
+    The script connects to the Power BI service, retrieves information about workspaces, reports, and datasets,
+    and gathers performance data related to dataset refreshes. The collected data includes workspace details,
+    report details, dataset details, refresh status, start time, end time, creation time, and last refresh time.
+    The script then exports this performance data to a CSV file.
+  Parameters:
+    outputPath:
+      Type: string
+      Default: "C:\\Users\\user\\OneDrive - Technology Cue\\TechnologyCueGigs\\Products\\technologucue\\Alpha Companies\\Data"
+  Functions:
+    Install-OrUpdate-Module:
+      Description: "Installs or updates a PowerShell module."
+      Parameters:
+        ModuleName:
+          Type: string
+      Script: |
+        $module = Get-Module $ModuleName -ListAvailable -ErrorAction SilentlyContinue
+
+        if (!$module -or ($module.Version -ne '1.0.0' -and $module.Version -le '1.0.410')) {
+            $action = if (!$module) { "Installing" } else { "Updating" }
+            Write-Host "$action module $ModuleName ..."
+            Install-Module -Name $ModuleName -Force -Scope CurrentUser
+            Write-Host "Module $ModuleName $action complete"
+        }
+  Main:
+    Credentials:
+      Username: "technology.cue@alphacompanies.com.au"
+      Password: "Cut97889"
+    Connect: |
+      $cred = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $username, $password
+      Connect-PowerBIServiceAccount -Credential $cred
+    DataCollections:
+      PBI_Dashboards: []
+      PBI_DashboardsReports: []
+      PBI_Reports: []
+      PBI_ErrorLog: []
+      PBI_DataSources: []
+      PBI_ReportsParameters: []
+      Performance: []
+      Performance_history: []
+      ReportSchedule: []
+    Iterations:
+      Workspaces: |
+        ForEach ($workspace in (Get-PowerBIWorkspace)) {
+          $workspaceId = $workspace.Id
+          foreach ($dashboard in (Get-PowerBIDashboard -WorkspaceId $workspaceId)) {
+            $dashboardInfo = [PSCustomObject]@{
+              "Workspace"     = $workspace.Name
+              "Dashboard"     = $dashboard.Name
+              "WorkspaceId"   = $workspaceId
+              "DashboardId"   = $dashboard.Id
+            }
+            $PBI_Dashboards += $dashboardInfo
+            foreach ($tile in (Get-PowerBITile -DashboardId $dashboard.Id -WorkspaceId $workspaceId)) {
+              if ($tile.ReportId -ne $null) {
+                foreach ($report in (Get-PowerBIReport -ReportId $tile.ReportId -WorkspaceId $workspaceId)) {
+                  $reportInfo = [PSCustomObject]@{
+                    "Workspace"    = $workspace.Name
+                    "Dashboard"    = $dashboard.Name
+                    "Report"       = $report.Name
+                    "WorkspaceId"  = $workspaceId 
+                    "DashboardId"  = $dashboard.Id
+                    "ReportId"     = $report.Id 
+                  }
+                  $PBI_DashboardsReports += $reportInfo
+                }
+              }
+            }
+          }
+          foreach ($report in (Get-PowerBIReport -WorkspaceId $workspaceId)) {
+            $reportInfo = [PSCustomObject]@{
+              "ReportId"     = $report.Id
+              "Report"       = $report.Name
+              "WorkspaceId"  = $workspaceId
+              "Workspace"    = $workspace.Name
+            }
+            $PBI_Reports += $reportInfo
+            if ($report.DatasetId -eq $null) {
+              continue
+            }
+            foreach ($dataset in (Get-PowerBIDataset -Id $report.DatasetId -WorkspaceId $workspaceId)) {
+              Write-Host $dataset.Name
+              $url_dataset_refreshSchedule = "https://api.powerbi.com/v1.0/myorg/datasets/$($dataset.id)/refreshSchedule"
+              $GetDatasetRefreshSchedule = $(Invoke-PowerBIRestMethod -Url $url_dataset_refreshSchedule -Method Get | ConvertFrom-Json).value
+              if($GetDatasetRefreshSchedule.Count -eq 0){
+                $GetDatasetRefreshSchedule = "there_is_no_data"
+              }
+              foreach($refreshSchedule in $GetDatasetRefreshSchedule){
+                $refreshScheduleDays = $refreshSchedule.days
+                $refreshScheduleTimes = $refreshSchedule.times
+                $refreshScheduleEnables = $refreshSchedule.enabled
+                $refreshScheduleLocalTimeZoneId = $refreshSchedule.localTimeZoneId
+                $refreshScheduleNotifyOption = $refreshSchedule.notifyOption
+                $ReportScheduleInfo = [PSCustomObject]@{
+                  "Workspace" = $workspace.Name
+                  "Report" = $report.Name
+                  "Dataset" = $dataset.Name
+                  "Days" = $refreshScheduleDays
+                  "Times" = $refreshScheduleTimes
+                  "enabled" = $refreshScheduleEnables
+                  "localTimeZoneId" = $refreshScheduleLocalTimeZoneId
+                  "notifyOption" = $refreshScheduleNotifyOption
+                }
+                $ReportSchedule+=$ReportScheduleInfo
+              }
+              $refreshUri = 'groups/{0}/datasets/{1}/refreshes' -f $workspaceId, $dataset.Id          
+              $refreshHistory = Invoke-PowerBIRestMethod -Url $refreshUri -Method Get | ConvertFrom-Json
+              if ($refreshHistory.value.Count -ne 0){
+                foreach ($refreshEntry in $refreshHistory.value) {
+                  $errorJson = $refreshEntry.serviceExceptionJson -replace "'", ''
+                  $Status = $refreshEntry.Status
+                  $CreateTime = $refreshHistory.value.startTime | Measure-Object -Minimum | Select-Object -ExpandProperty Minimum
+                  $lastRefreshStartTime = $refreshHistory.value.startTime | Measure-Object -Maximum | Select-Object -ExpandProperty Maximum
+                  $lastRefreshEndTime = $refreshHistory.value.endTime | Measure-Object -Maximum | Select-Object -ExpandProperty Maximum
+                  $startTime = if ($refreshEntry.StartTime.count -eq 0) { "" } else { [DateTime]::Parse($refreshEntry.StartTime) }
+                  $endTime = if ($refreshEntry.EndTime.count -eq 0) { "" } else { [DateTime]::Parse($refreshEntry.EndTime) }
+                  $laststartTime = if ($lastRefreshStartTime.count -eq 0) { "" } else { [DateTime]::Parse($lastRefreshStartTime) }
+                  $lastendTime = if ($lastRefreshEndTime.count -eq 0) { "" } else { [DateTime]::Parse($lastRefreshEndTime) }
+                  $timeDifferenceInMinutes = [math]::Round(($endTime - $startTime).TotalSeconds)
+                  $lasttimeDifferenceInMinutes = [math]::Round(($lastendTime - $laststartTime).TotalSeconds)         
+                  $formattedTimeDifference = "$timeDifferenceInMinutes"
+                  if($refreshEntry.StartTime.Count + $refreshEntry.EndTime.Count -eq 0){
+                    $formattedTimeDifference = ""
+                  }
+                  $lastformattedTimeDifference = "$lasttimeDifferenceInMinutes"
+                  if($lastRefreshStartTime.Count + $lastRefreshEndTime.Count -eq 0){
+                    $lastformattedTimeDifference = ""
+                  }
+                  $PerformanceInfo = [PSCustomObject]@{
+                    "Workspace" = $workspace.Name
+                    "Report" = $report.Name
+                    "Dataset" = $dataset.Name
+                    "Last_Refresh_StartTime"=$lastRefreshStartTime
+                    "Last_Refresh_EndTime"=$lastRefreshEndTime
+                    "Status" = $Status
+                    "WorkspaceId" = $workspaceId
+                    "ReportId" = $report.Id
+                    "DatasetId" = $dataset.Id
+                    "CreationTime" = $CreateTime
+                    "RefreshCostTime" = $lastformattedTimeDifference
+                  }
+                  $Performance += $PerformanceInfo
+                  $Performance_historyInfo = [PSCustomObject]@{
+                    "Workspace" = $workspace.Name
+                    "Report" = $report.Name
+                    "Dataset" = $dataset.Name
+                    "StartTime" = $refreshEntry.StartTime
+                    "EndTime" = $refreshEntry.EndTime
+                    "Status" = $Status
+                    "WorkspaceId" = $workspaceId
+                    "ReportId" = $report.Id
+                    "DatasetId" = $dataset.Id
+                    "RefreshCostTime" = $formattedTimeDifference
+                    "RefreshType"  = $refreshEntry.RefreshType
+                  }
+                  $Performance_history += $Performance_historyInfo
+                  $errorLogInfo = [PSCustomObject]@{
+                    "Workspace"    = $workspace.Name
+                    "Report"       = $report.Name
+                    "Dataset"      = $dataset.Name
+                    "RefreshType"  = $refreshEntry.RefreshType
+                    "StartTime"    = $refreshEntry.StartTime
+                    "EndTime"      = $refreshEntry.EndTime
+                    "Status"       = $refreshEntry.Status
+                    "ErrorMessage" = $errorJson
+                    "WorkspaceId"  = $workspaceId
+                    "ReportId"     = $report.Id
+                    "DatasetId"    = $dataset.Id
+                  }
+                  $PBI_ErrorLog += $errorLogInfo
+                }
+              }
+            }
+          }
+        }
+    ExportCSV:
+      PBI_Dashboards: "PBI_Dashboards.csv"
+      PBI_DashboardsReports: "PBI_DashboardsReports.csv"
+      PBI_Reports: "PBI_Reports.csv"
+      PBI_ErrorLog: "PBI_ErrorLog.csv"
+      PBI_DataSources: "PBI_DataSources.csv"
+      PBI_ReportsParameters: "PBI_ReportsParameters.csv"
+      Performance: "Performance.csv"
+      Performance_history: "Performance_history.csv"
+      ReportSchedule: "ReportSchedule.csv"
+  Execution:
+    Install-OrUpdate-Module:
+      Parameters:
+        ModuleName: "MicrosoftPowerBIMgmt"
+    Main:
+      Parameters:
+        outputPath: "C:\\Users\\user\\OneDrive - Technology Cue\\TechnologyCueGigs\\Products\\technologucue\\Alpha Companies\\Data"
