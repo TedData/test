@@ -1,4 +1,7 @@
 PowerBIScript:
+  on:
+    - "manual trigger"
+    - "scheduled run"
   Synopsis: "This PowerShell script retrieves performance data for Power BI datasets and exports it to a CSV file."
   Description: >
     The script connects to the Power BI service, retrieves information about workspaces, reports, and datasets,
