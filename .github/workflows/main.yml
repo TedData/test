@@ -1,49 +1,42 @@
-PowerBIScript:
-  on: push
-  Synopsis: "This PowerShell script retrieves performance data for Power BI datasets and exports it to a CSV file."
-  Description: >
-    The script connects to the Power BI service, retrieves information about workspaces, reports, and datasets,
-    and gathers performance data related to dataset refreshes. The collected data includes workspace details,
-    report details, dataset details, refresh status, start time, end time, creation time, and last refresh time.
-    The script then exports this performance data to a CSV file.
-  Parameters:
-    outputPath:
-      Type: string
-      Default: "C:\\Users\\user\\OneDrive - Technology Cue\\TechnologyCueGigs\\Products\\technologucue\\Alpha Companies\\Data"
-  Functions:
-    Install-OrUpdate-Module:
-      Description: "Installs or updates a PowerShell module."
-      Parameters:
-        ModuleName:
-          Type: string
-      Script: |
-        $module = Get-Module $ModuleName -ListAvailable -ErrorAction SilentlyContinue
+name: PowerBI Performance Data Collection
 
-        if (!$module -or ($module.Version -ne '1.0.0' -and $module.Version -le '1.0.410')) {
-            $action = if (!$module) { "Installing" } else { "Updating" }
-            Write-Host "$action module $ModuleName ..."
-            Install-Module -Name $ModuleName -Force -Scope CurrentUser
-            Write-Host "Module $ModuleName $action complete"
-        }
-  Main:
-    Credentials:
-      Username: "technology.cue@alphacompanies.com.au"
-      Password: "Cut97889"
-    Connect: |
-      $cred = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $username, $password
-      Connect-PowerBIServiceAccount -Credential $cred
-    DataCollections:
-      PBI_Dashboards: []
-      PBI_DashboardsReports: []
-      PBI_Reports: []
-      PBI_ErrorLog: []
-      PBI_DataSources: []
-      PBI_ReportsParameters: []
-      Performance: []
-      Performance_history: []
-      ReportSchedule: []
-    Iterations:
-      Workspaces: |
+on: 
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '0 0 * * *'
+
+jobs:
+  run-script:
+    runs-on: windows-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Set up PowerShell
+      uses: actions/setup-powershell@v1
+
+    - name: Run PowerBI Performance Script
+      run: |
+        Install-Module -Name MicrosoftPowerBIMgmt -Force -Scope CurrentUser
+
+        $username = "technology.cue@alphacompanies.com.au"
+        $password = "Cut97889"
+        $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
+        $cred = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $username, $securePassword
+        Connect-PowerBIServiceAccount -Credential $cred
+
+        $PBI_Dashboards = @()
+        $PBI_DashboardsReports = @()
+        $PBI_Reports = @()
+        $PBI_ErrorLog = @()
+        $PBI_DataSources = @()
+        $PBI_ReportsParameters = @()
+        $Performance = @()
+        $Performance_history = @()
+        $ReportSchedule = @()
+
         ForEach ($workspace in (Get-PowerBIWorkspace)) {
           $workspaceId = $workspace.Id
           foreach ($dashboard in (Get-PowerBIDashboard -WorkspaceId $workspaceId)) {
@@ -162,34 +155,54 @@ PowerBIScript:
                     "Report"       = $report.Name
                     "Dataset"      = $dataset.Name
                     "RefreshType"  = $refreshEntry.RefreshType
+                    "Status"       = $refreshEntry.Status
                     "StartTime"    = $refreshEntry.StartTime
                     "EndTime"      = $refreshEntry.EndTime
-                    "Status"       = $refreshEntry.Status
-                    "ErrorMessage" = $errorJson
-                    "WorkspaceId"  = $workspaceId
-                    "ReportId"     = $report.Id
-                    "DatasetId"    = $dataset.Id
+                    "ServiceExceptionJson" = $refreshEntry.serviceExceptionJson
+                    "StackTrace" = $errorJson
                   }
-                  $PBI_ErrorLog += $errorLogInfo
+                  if ($Status -eq "Failed"){
+                    $PBI_ErrorLog += $errorLogInfo
+                  }
                 }
               }
             }
+            foreach($dataSource in (Get-PowerBIDatasource -DatasetId $report.DatasetId -WorkspaceId $workspaceId)){
+              $dataSourceInfo = [PSCustomObject]@{
+                "Workspace" = $workspace.Name
+                "Report" = $report.Name
+                "Dataset" = $dataset.Name
+                "DatasourceId" = $dataSource.DatasourceId
+                "DatasourceName" = $dataSource.DatasourceName
+                "DatasourceType" = $dataSource.DatasourceType
+              }
+              $PBI_DataSources+=$dataSourceInfo
+            }
+            foreach($parameter in (Get-PowerBIDatasetParameters -WorkspaceId $workspaceId -DatasetId $report.DatasetId)){
+              $parameterInfo = [PSCustomObject]@{
+                "Workspace" = $workspace.Name
+                "Report" = $report.Name
+                "Dataset" = $dataset.Name
+                "Name" = $parameter.Name
+                "Description" = $parameter.Description
+                "Type" = $parameter.Type
+                "IsRequired" = $parameter.IsRequired
+                "IsDynamic" = $parameter.IsDynamic
+                "CurrentValue" = $parameter.CurrentValue
+                "DefaultValue" = $parameter.DefaultValue
+              }
+              $PBI_ReportsParameters += $parameterInfo
+            }
           }
         }
-    ExportCSV:
-      PBI_Dashboards: "PBI_Dashboards.csv"
-      PBI_DashboardsReports: "PBI_DashboardsReports.csv"
-      PBI_Reports: "PBI_Reports.csv"
-      PBI_ErrorLog: "PBI_ErrorLog.csv"
-      PBI_DataSources: "PBI_DataSources.csv"
-      PBI_ReportsParameters: "PBI_ReportsParameters.csv"
-      Performance: "Performance.csv"
-      Performance_history: "Performance_history.csv"
-      ReportSchedule: "ReportSchedule.csv"
-  Execution:
-    Install-OrUpdate-Module:
-      Parameters:
-        ModuleName: "MicrosoftPowerBIMgmt"
-    Main:
-      Parameters:
-        outputPath: "C:\\Users\\user\\OneDrive - Technology Cue\\TechnologyCueGigs\\Products\\technologucue\\Alpha Companies\\Data"
+        
+        $outputPath = "C:\\Users\\user\\OneDrive - Technology Cue\\TechnologyCueGigs\\Products\\technologucue\\Alpha Companies\\Data"
+        $PBI_Dashboards | Export-Csv -Path "$outputPath\\PBI_Dashboards.csv" -NoTypeInformation
+        $PBI_DashboardsReports | Export-Csv -Path "$outputPath\\PBI_DashboardsReports.csv" -NoTypeInformation
+        $PBI_Reports | Export-Csv -Path "$outputPath\\PBI_Reports.csv" -NoTypeInformation
+        $PBI_ErrorLog | Export-Csv -Path "$outputPath\\PBI_ErrorLog.csv" -NoTypeInformation
+        $PBI_DataSources | Export-Csv -Path "$outputPath\\PBI_DataSources.csv" -NoTypeInformation
+        $PBI_ReportsParameters | Export-Csv -Path "$outputPath\\PBI_ReportsParameters.csv" -NoTypeInformation
+        $Performance | Export-Csv -Path "$outputPath\\Performance.csv" -NoTypeInformation
+        $Performance_history | Export-Csv -Path "$outputPath\\Performance_history.csv" -NoTypeInformation
+        $ReportSchedule | Export-Csv -Path "$outputPath\\ReportSchedule.csv" -NoTypeInformation
