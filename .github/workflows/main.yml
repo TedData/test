@@ -45,4 +45,4 @@ jobs:
         }
             
         $outputPath = "C:\\Users\\user\\Desktop\\PowerBI\\Workout"
-        $results | Export-Csv -Path "$outputPath\\workspaceSummary.csv" -NoTypeInformation
+        Write-Host $results
