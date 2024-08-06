@@ -14,13 +14,13 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v2
 
-    - name: Set up PowerShell
-      uses: actions/setup-powershell@v1
+    - name: Install PowerShell Modules
+      run: |
+        Install-Module -Name MicrosoftPowerBIMgmt -Force -Scope CurrentUser
+      shell: pwsh
 
     - name: Run PowerBI Performance Script
       run: |
-        Install-Module -Name MicrosoftPowerBIMgmt -Force -Scope CurrentUser
-
         $username = "technology.cue@alphacompanies.com.au"
         $password = "Cut97889"
         $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
