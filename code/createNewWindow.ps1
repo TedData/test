@@ -81,10 +81,10 @@ $retrieveDate = Get-Date
 $activityLogsPath = Join-Path -Path $outputPath -ChildPath "ActivityLogs.csv"
 
 # Convert start and end date strings to DateTime objects
-$startDate = (Get-Date $endDate).AddDays(-30)
+$startDate = (Get-Date $endDate).AddDays(-28)
 $endDate = (Get-Date $endDate).AddDays(1)
-if ($startDate -lt $retrieveDate.AddDays(-30)) {
-    $startDate = $retrieveDate.AddDays(-30)
+if ($startDate -lt $retrieveDate.AddDays(-28)) {
+    $startDate = $retrieveDate.AddDays(-28)
 }
 
 # Initialize the loop with the start date
@@ -123,3 +123,4 @@ while ($currentDate -le $endDate) {
 }
 
 $activityLog | Export-Csv $ActivityLogsPath -NoTypeInformation
+
