@@ -77,7 +77,7 @@ ForEach ($workspace in ($allWorkspaces)) {
     foreach ($report in $GetScanResult.workspaces.reports) {
         $reportId = $report.id
         $reportName = $report.name
-        Write-Host "report name is $($reportName)"
+        Write-Host "report Name is $($reportName)"
         
         # Construct URL to get users for a specific report
         $UrlReportId = "https://api.powerbi.com/v1.0/myorg/admin/reports/$reportId/users"
@@ -111,3 +111,4 @@ ForEach ($workspace in ($allWorkspaces)) {
 $userAccessRight | Export-Csv -Path "$outputPath\PBI_WSUsersAccessRights.csv" -NoTypeInformation
 
 Write-Host "Completed"
+
