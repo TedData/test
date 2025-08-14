@@ -311,4 +311,5 @@ $ScannerReportsAndDatasets | Export-Csv -Path "$outputPath\PBI_ScannerReportsAnd
 $ScannerTablesAndColumns | Export-Csv -Path "$outputPath\PBI_ScannerTablesAndColumns.csv" -NoTypeInformation
 $ScannerMeasures | Export-Csv -Path "$outputPath\PBI_ScannerMeasures.csv" -NoTypeInformation
 
-Write-Host "Completed"
+Write-Host "completed"
+
